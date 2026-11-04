@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Stranger</title>
+<style>
+  :root {
+    --bg: #f6f4ef; --panel: #ffffff; --ink: #1f1d1a; --muted: #6b665e; --line: #e2ddd3;
+    --human: #e8f0fb; --human-ink: #17365c; --agent: #f3ecdf; --agent-ink: #4a3a16;
+    --thinking: #8a857c; --accent: #7a5c2e; --ok: #2e8b57; --bad: #c0392b; --warn: #c7841a;
+    --listening: #2e8b57; --deciding: #c7841a; --thinking-c: #6a4fb3; --speaking: #1f6fb2;
+    --meter: #7a5c2e; --meter-bg: #e9e3d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15140f; --panel: #1f1d18; --ink: #ece7dc; --muted: #9b958a; --line: #35322b;
+      --human: #1d2a3b; --human-ink: #c9dcf5; --agent: #2d2719; --agent-ink: #ead9b6;
+      --thinking: #7d786f; --accent: #d1a862; --meter: #d1a862; --meter-bg: #2a2720;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15140f; --panel: #1f1d18; --ink: #ece7dc; --muted: #9b958a; --line: #35322b;
+    --human: #1d2a3b; --human-ink: #c9dcf5; --agent: #2d2719; --agent-ink: #ead9b6;
+    --thinking: #7d786f; --accent: #d1a862; --meter: #d1a862; --meter-bg: #2a2720;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 Georgia, "Times New Roman", serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; padding: 12px 16px;
+           border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; }
+  header h1 { font-size: 18px; margin: 0; font-weight: normal; letter-spacing: 0.04em; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px; border-radius: 999px;
+          border: 1px solid var(--line); font: 13px system-ui, sans-serif; background: var(--bg); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+  .dot.listening { background: var(--listening); animation: pulse 1.6s infinite; }
+  .dot.deciding { background: var(--deciding); }
+  .dot.thinking { background: var(--thinking-c); animation: blink 0.9s infinite; }
+  .dot.speaking { background: var(--speaking); animation: blink 0.5s infinite; }
+  .dot.online { background: var(--ok); } .dot.offline { background: var(--bad); }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(46,139,87,.5);} 70% { box-shadow: 0 0 0 8px rgba(46,139,87,0);} 100% { box-shadow: 0 0 0 0 rgba(46,139,87,0);} }
+  @keyframes blink { 50% { opacity: .35; } }
+  main { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 16px; padding: 16px; max-width: 1400px; margin: 0 auto; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  section.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  h2 { font: 12px system-ui, sans-serif; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin: 0 0 10px; }
+  #transcript { min-height: 50vh; max-height: 70vh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+  .msg { padding: 10px 14px; border-radius: 12px; max-width: 92%; white-space: pre-wrap; word-wrap: break-word; }
+  .msg .who { font: 11px system-ui, sans-serif; text-transform: uppercase; letter-spacing: .1em; opacity: .75; margin-bottom: 3px; display: flex; gap: 8px; }
+  .msg.human { background: var(--human); color: var(--human-ink); align-self: flex-start; }
+  .msg.human.unanswered { opacity: .7; }
+  .msg.agent { background: var(--agent); color: var(--agent-ink); align-self: flex-end; font-style: italic; border-left: 3px solid var(--accent); }
+  .msg .tag { font-style: normal; opacity: .7; }
+  .msg.live::after { content: "▍"; animation: blink .8s infinite; }
+  #thinking { color: var(--thinking); font: 13px/1.45 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap;
+              max-height: 28vh; overflow-y: auto; opacity: .85; min-height: 3em; }
+  #thinking.empty { font-style: italic; }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tile { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .tile .k { font: 11px system-ui, sans-serif; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  .tile .v { font: 22px/1.2 system-ui, sans-serif; margin-top: 2px; }
+  .tile .s { font: 11px system-ui, sans-serif; color: var(--muted); }
+  .bar { height: 14px; background: var(--meter-bg); border-radius: 7px; overflow: hidden; margin: 6px 0 4px; }
+  .bar > div { height: 100%; background: var(--meter); width: 0; transition: width .4s; }
+  .small { font: 12px system-ui, sans-serif; color: var(--muted); }
+  footer { padding: 12px 16px 24px; max-width: 1400px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  input[type=text] { flex: 1 1 320px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); font: 15px Georgia, serif; }
+  button, select { padding: 9px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: 13px system-ui, sans-serif; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  #notices { font: 12px system-ui, sans-serif; color: var(--muted); max-height: 7em; overflow-y: auto; }
+  #notices .error { color: var(--bad); } #notices .warning { color: var(--warn); }
+  #decision { font: 12px system-ui, sans-serif; color: var(--muted); margin-top: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>The Stranger</h1>
+  <span class="pill" title="status"><span id="status-dot" class="dot"></span><span id="status-text">connecting…</span></span>
+  <span class="pill" title="model endpoint"><span id="conn-dot" class="dot"></span><span id="conn-text">model endpoint: unknown</span></span>
+  <span class="pill"><span>replies:</span>
+    <select id="mode" style="padding:2px 6px"><option value="named">when named</option><option value="always">always</option></select>
+  </span>
+  <span class="pill small" id="model-text"></span>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Transcript</h2>
+    <div id="transcript"></div>
+    <div id="decision"></div>
+  </section>
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <section class="panel"><h2>Thinking</h2><div id="thinking" class="empty">no thinking yet</div></section>
+    <section class="panel">
+      <h2>Last reply</h2>
+      <div class="tiles">
+        <div class="tile"><div class="k">input tokens</div><div class="v" id="in-tok">–</div><div class="s" id="in-src"></div></div>
+        <div class="tile"><div class="k">output tokens</div><div class="v" id="out-tok">–</div><div class="s" id="out-src"></div></div>
+        <div class="tile"><div class="k">time to first token</div><div class="v" id="ttft">–</div><div class="s">seconds</div></div>
+        <div class="tile"><div class="k">total time</div><div class="v" id="total">–</div><div class="s">seconds</div></div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Context window</h2>
+      <div class="bar"><div id="meter-bar"></div></div>
+      <div class="small" id="meter-text">–</div>
+    </section>
+    <section class="panel"><h2>Notices</h2><div id="notices"></div></section>
+  </div>
+</main>
+
+<footer>
+  <input type="text" id="say" placeholder="Type an utterance and press Enter" autocomplete="off">
+  <button id="send">Send</button>
+  <button id="stop" title="stop the voice mid-line">Stop speech</button>
+  <button id="clear" title="forget the conversation">Clear</button>
+</footer>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const transcript = $("transcript"), thinking = $("thinking");
+  let displayName = "The Stranger", trigger = "Stranger";
+  let live = null, clock = null, clockStart = 0, hadThinking = false;
+
+  const fmt = (n) => n == null ? "–" : Number(n).toLocaleString();
+  const scrollDown = (el) => { el.scrollTop = el.scrollHeight; };
+
+  function setStatus(s) { $("status-dot").className = "dot " + s; $("status-text").textContent = s; }
+  function setConnection(c) {
+    const on = c.online === true;
+    $("conn-dot").className = "dot " + (c.online == null ? "" : on ? "online" : "offline");
+    $("conn-text").textContent = "model endpoint: " + (c.online == null ? "checking" : on ? "online" : "offline")
+      + (c.detail ? " · " + String(c.detail).split("\n")[0] : "");
+    $("conn-text").title = c.detail || "";
+  }
+  function setMeter(m) {
+    if (!m) return;
+    $("meter-bar").style.width = Math.round(100 * (m.fraction || 0)) + "%";
+    $("meter-text").textContent = fmt(m.used) + " of " + fmt(m.window) + " tokens (" + m.percent + "%) · " + m.source;
+  }
+  function setStats(s) {
+    if (!s) return;
+    if (s.live) { $("out-tok").textContent = "~" + fmt(s.output_tokens); $("out-src").textContent = "streaming"; return; }
+    if (s.output_tokens != null) { $("out-tok").textContent = fmt(s.output_tokens); $("out-src").textContent = "from the server"; }
+    else if (s.output_tokens_estimated != null) { $("out-tok").textContent = "~" + fmt(s.output_tokens_estimated); $("out-src").textContent = "estimated (count not returned)"; }
+    else { $("out-tok").textContent = "–"; $("out-src").textContent = "not returned"; }
+    if (s.input_tokens != null) { $("in-tok").textContent = fmt(s.input_tokens); $("in-src").textContent = "from the server"; }
+    else { $("in-tok").textContent = "–"; $("in-src").textContent = "not returned"; }
+    $("ttft").textContent = s.first_token_seconds != null ? Number(s.first_token_seconds).toFixed(1) : "–";
+    $("total").textContent = s.total_seconds != null ? Number(s.total_seconds).toFixed(1) : "–";
+  }
+  function addEntry(e) {
+    if (e.role === "agent" && live) { live.classList.remove("live"); live.querySelector(".body").textContent = e.text; live = null; return; }
+    const div = document.createElement("div");
+    div.className = "msg " + e.role + (e.role === "human" && e.answered === false ? " unanswered" : "");
+    const tag = e.role === "human" ? (e.answered ? (e.named ? "named " + trigger : "answered") : "no reply (name not said)") : "";
+    div.innerHTML = '<div class="who"><span></span><span class="tag"></span></div><div class="body"></div>';
+    div.querySelector(".who span").textContent = e.speaker;
+    div.querySelector(".tag").textContent = tag;
+    div.querySelector(".body").textContent = e.text;
+    transcript.appendChild(div); scrollDown(transcript);
+  }
+  function startLive(speaker) {
+    hadThinking = false;
+    thinking.textContent = ""; thinking.classList.remove("empty");
+    live = document.createElement("div"); live.className = "msg agent live";
+    live.innerHTML = '<div class="who"><span></span></div><div class="body"></div>';
+    live.querySelector(".who span").textContent = speaker;
+    transcript.appendChild(live); scrollDown(transcript);
+    clockStart = performance.now();
+    clock = setInterval(() => { $("total").textContent = ((performance.now() - clockStart) / 1000).toFixed(1); }, 100);
+  }
+  function endLive(ev) {
+    if (clock) { clearInterval(clock); clock = null; }
+    if (!ev.had_thinking && !hadThinking) { thinking.textContent = "the model returned no separate thinking block"; thinking.classList.add("empty"); }
+    if (live && !ev.text) { live.remove(); live = null; }
+    setStats(ev.stats);
+  }
+  function notice(level, text) { const d = document.createElement("div"); d.className = level; d.textContent = text; $("notices").prepend(d); }
+  function applySnapshot(s) {
+    displayName = s.settings.display_name; trigger = s.settings.trigger_name;
+    $("say").placeholder = "Speak as " + s.settings.user_name + " (typed utterances are treated like transcribed ones)";
+    $("model-text").textContent = (s.model || "") + " @ " + (s.endpoint || "") + (s.settings.speak ? " · voice on" : "");
+    $("mode").value = s.settings.reply_mode;
+    transcript.innerHTML = ""; live = null;
+    s.transcript.forEach(addEntry);
+    setStatus(s.status); setConnection(s.connection); setMeter(s.meter); setStats(s.stats);
+  }
+
+  const handlers = {
+    snapshot: applySnapshot,
+    status: (e) => setStatus(e.status),
+    connection: setConnection,
+    meter: setMeter,
+    stats: (e) => setStats(e),
+    settings: (e) => { if (e.reply_mode) $("mode").value = e.reply_mode; },
+    transcript: (e) => addEntry(e.entry),
+    reply_start: (e) => startLive(e.speaker),
+    thinking_delta: (e) => { hadThinking = true; thinking.textContent += e.delta; scrollDown(thinking); },
+    text_delta: (e) => { if (!live) startLive(displayName); live.querySelector(".body").textContent += e.delta; scrollDown(transcript); },
+    reply_end: endLive,
+    decision: (e) => { $("decision").textContent = "last decision: " + e.action + " — " + e.reason; },
+    notice: (e) => notice(e.level, e.text),
+    cleared: () => { transcript.innerHTML = ""; live = null; thinking.textContent = "no thinking yet"; thinking.classList.add("empty"); $("decision").textContent = ""; },
+    speech: () => {},
+  };
+
+  function connect() {
+    const es = new EventSource("/events");
+    Object.keys(handlers).forEach((k) => es.addEventListener(k, (m) => handlers[k](JSON.parse(m.data))));
+    es.onerror = () => { setStatus("disconnected"); $("status-dot").className = "dot"; };
+  }
+  async function post(url, body) {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) notice("error", url + ": " + (await r.text()));
+  }
+  function send() { const text = $("say").value.trim(); if (!text) return; $("say").value = ""; post("/api/utterance", { text, source: "typed" }); }
+  $("send").onclick = send;
+  $("say").addEventListener("keydown", (ev) => { if (ev.key === "Enter") send(); });
+  $("mode").onchange = () => post("/api/settings", { reply_mode: $("mode").value });
+  $("stop").onclick = () => post("/api/command", { command: "stop_speech" });
+  $("clear").onclick = () => post("/api/command", { command: "clear" });
+  connect();
+})();
+</script>
+</body>
+</html>

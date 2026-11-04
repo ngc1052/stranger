@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stranger"
+version = "0.1.0"
+description = "The Stranger: a spoken-conversation agent on a local language model, with a web GUI and telemetry."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = []                       # the core is standard library only
+
+[project.optional-dependencies]
+web = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+speech = ["faster-whisper>=1.0", "sounddevice>=0.4", "numpy", "scipy"]
+voice = ["piper-tts>=1.8", "sounddevice>=0.4", "numpy"]
+all = ["stranger[web,speech,voice]"]
+test = ["fastapi>=0.110", "httpx", "numpy", "scipy"]
+
+[project.scripts]
+stranger = "stranger.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["stranger*"]
+
+[tool.setuptools.package-data]
+"stranger.web" = ["static/*.html"]

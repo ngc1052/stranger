@@ -1,0 +1,4 @@
+# A plain helpful assistant: an example of a second profile.
+display_name = "Assistant"
+speaker_tag = "ASSISTANT"
+preamble = "You are talking with {name}. Address them directly."

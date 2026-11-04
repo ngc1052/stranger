@@ -1,0 +1,9 @@
+# Everything for the full setup: web GUI, speech in, speech out, tests.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+faster-whisper>=1.0
+sounddevice>=0.4
+numpy
+scipy
+piper-tts>=1.8
+httpx            # tests only (FastAPI's TestClient)

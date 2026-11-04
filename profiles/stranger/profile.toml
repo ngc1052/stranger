@@ -1,0 +1,6 @@
+# The Stranger: the default persona.
+display_name = "The Stranger"       # label shown on screen and in the terminal
+speaker_tag = "THE STRANGER"        # tag used in the conversation history
+preamble = "You are in conversation with {name}. Answer what they actually say."
+# context_file = "context.md"       # optional notes placed after the constitution (verbatim)
+# context_label = "NOTES"
