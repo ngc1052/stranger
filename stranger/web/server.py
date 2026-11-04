@@ -4,7 +4,7 @@
     GET  /events         Server-Sent Events: a `snapshot` first, then every agent event
     GET  /api/state      the same snapshot as JSON
     POST /api/utterance  {"text": "..."}: a typed utterance, queued like a transcribed one
-    POST /api/settings   {"reply_mode": "named" | "always"}
+    POST /api/settings   {"agent.reply_mode": "always", "model.temperature": 0.8, ...}  (live settings)
     POST /api/command    {"command": "stop_speech" | "clear"}
 """
 
@@ -73,8 +73,9 @@ def create_app(agent: Agent, endpoint_check=None, check_seconds: float = 5.0, mi
 
     @app.post("/api/settings")
     def settings(body: dict):
+        changes = {("agent." + k if k in ("reply_mode", "trigger_name") else k): v for k, v in body.items()}
         try:
-            return {"reply_mode": agent.set_reply_mode(str(body.get("reply_mode", "")))}
+            return agent.apply_settings(changes)
         except ValueError as e:
             raise HTTPException(400, str(e))
 

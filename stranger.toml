@@ -1,0 +1,56 @@
+# The Stranger: settings. Every key here mirrors a field of the dataclasses in
+# stranger/config.py; `python -m stranger config` shows the effective result and
+# where each value came from. Flags and STRANGER_<SECTION>_<KEY> environment
+# variables override this file; a preset (--preset NAME) overlays [presets.NAME].
+
+[model]
+host = "http://localhost:11434"     # Ollama, or an OpenAI-compatible server with api = "openai"
+api = "ollama"
+model = "qwen3:1.7b"
+num_ctx = 8192                      # context window requested and metered against
+max_tokens = 600                    # cap per reply, thinking included
+max_sentences = 3                   # replies are cut after this many complete sentences; 0 = no limit
+temperature = 0.6
+repeat_penalty = 1.15
+think = true                        # ask for a separate thinking stream
+keep_alive = "30m"
+timeout_seconds = 120.0
+
+[agent]
+profile = "stranger"                # a name under profiles/, or a directory path
+user_name = "Visitor"               # the human's name, as the model sees it
+reply_mode = "named"                # "named": answer only when the trigger word is said; "always"
+warm_up = true
+
+[speech]
+input = "mic"                       # "mic" or "text" (type in the page / terminal)
+# device = "Digital Microphone"     # index or name substring; see `python -m stranger check`
+model_size = "small"                # faster-whisper model: tiny, base, small, medium, large-v3
+chunk_seconds = 2.0
+max_chunks = 6
+
+[voice]
+enabled = false                     # read replies aloud (the thinking is never spoken)
+backend = "piper"                   # piper | espeak | elevenlabs | openai
+# voice = "en_GB-alan-medium"
+# output_device = "Speaker"
+
+[web]
+bind = "127.0.0.1"
+port = 8766
+quiet = false
+
+# Presets overlay the sections they name. Example: a vLLM server on a cluster,
+# reached through `ssh -N -L 8000:localhost:8000 cluster-login`.
+[presets.cluster.model]
+host = "http://localhost:8000"
+api = "openai"
+model = "Qwen/Qwen3-4B"
+num_ctx = 32768
+
+[presets.fast.model]
+think = false
+max_tokens = 120
+
+[presets.typed.speech]
+input = "text"

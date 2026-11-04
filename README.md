@@ -37,7 +37,9 @@ hear the replies:
 python -m stranger serve --mic-device "Digital Microphone" --speak
 ```
 
-`python -m stranger chat` gives the same agent in the terminal only.
+`python -m stranger chat` gives the same agent in the terminal only. Defaults
+such as the microphone name and the model live in `stranger.toml`, so the
+flags are only needed to deviate from it.
 
 ## What the page shows
 
@@ -53,6 +55,24 @@ python -m stranger serve --mic-device "Digital Microphone" --speak
 The header has a switch for the reply rule (when named / always), and the
 footer a text box that feeds the agent exactly like transcribed speech,
 plus **Stop speech** and **Clear**.
+
+## Settings
+
+Everything tunable is in `stranger.toml` at the repository root: the model
+and endpoint, the reply rule, microphone and voice, port. Flags, `STRANGER_*`
+environment variables and named presets override it, and
+`python -m stranger config` prints the effective result with the source of
+every value. A few settings (reply rule, trigger word, temperature,
+sentence and token limits, thinking) can be changed while running, from
+the page's settings drawer or `POST /api/settings`.
+
+```bash
+python -m stranger config                       # what is in effect, and from where
+python -m stranger serve --preset cluster       # [presets.cluster] overlays the file
+STRANGER_MODEL_MODEL=gemma3:1b python -m stranger chat --input text
+```
+
+See [docs/configuration.md](docs/configuration.md).
 
 ## The reply rule
 
@@ -130,7 +150,7 @@ speech** on the page to cut it off. Installing a voice is two commands, see
 every agent event (`status`, `transcript`, `reply_start`, `thinking_delta`,
 `text_delta`, `stats`, `reply_end`, `meter`, `decision`, `connection`,
 `notice`, `settings`, `cleared`, `speech`). `GET /api/state` returns the
-snapshot. `POST /api/utterance`, `/api/settings`, `/api/command` take JSON.
+snapshot. `POST /api/utterance`, `/api/settings` (live settings), `/api/command` take JSON.
 Details in [docs/http-api.md](docs/http-api.md); the architecture and the
 state machine in [docs/architecture.md](docs/architecture.md).
 
@@ -148,8 +168,10 @@ is installed, the microphone test with `STRANGER_MIC_TEST=1`.
 ## Layout
 
 ```
+stranger.toml      the settings file (model, agent, speech, voice, web, presets)
 stranger/
-  __main__.py      CLI: serve | chat | check | profiles
+  __main__.py      CLI: serve | chat | config | check | profiles
+  config.py        layered settings: defaults < file < preset < environment < flags
   profiles.py      constitution + profile.toml + context -> system prompt
   llm/             LLMClient (ollama | openai protocols), ThinkRouter, messages
   agent/           Agent (reply rule, status, streamed generation), EventBus, ContextMeter
@@ -160,7 +182,7 @@ stranger/
   keys.py          q / x keys without blocking
 profiles/          stranger, assistant
 tests/             offline suite with fake servers
-docs/              architecture, profiles, HTTP API, voice setup
+docs/              architecture, configuration, profiles, HTTP API, voice setup
 ```
 
 ## Requirements

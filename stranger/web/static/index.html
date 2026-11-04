@@ -69,6 +69,9 @@
   #notices { font: 12px system-ui, sans-serif; color: var(--muted); max-height: 7em; overflow-y: auto; }
   #notices .error { color: var(--bad); } #notices .warning { color: var(--warn); }
   #decision { font: 12px system-ui, sans-serif; color: var(--muted); margin-top: 8px; }
+  .form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .form label { font: 12px system-ui, sans-serif; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+  .form input, .form select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: 14px system-ui, sans-serif; }
 </style>
 </head>
 <body>
@@ -79,6 +82,7 @@
   <span class="pill"><span>replies:</span>
     <select id="mode" style="padding:2px 6px"><option value="named">when named</option><option value="always">always</option></select>
   </span>
+  <button id="settings-btn" style="padding:4px 10px">settings</button>
   <span class="pill small" id="model-text"></span>
 </header>
 
@@ -103,6 +107,17 @@
       <h2>Context window</h2>
       <div class="bar"><div id="meter-bar"></div></div>
       <div class="small" id="meter-text">–</div>
+    </section>
+    <section class="panel" id="settings" hidden>
+      <h2>Live settings</h2>
+      <div class="small" style="margin-bottom:8px">Take effect on the next reply. Everything else is in stranger.toml and needs a restart.</div>
+      <div class="form">
+        <label>trigger word <input type="text" data-key="agent.trigger_name"></label>
+        <label>temperature <input type="number" step="0.05" min="0" max="2" data-key="model.temperature"></label>
+        <label>max sentences <input type="number" step="1" min="0" data-key="model.max_sentences"></label>
+        <label>max tokens <input type="number" step="10" min="1" data-key="model.max_tokens"></label>
+        <label>thinking <select data-key="model.think"><option value="true">on</option><option value="false">off</option></select></label>
+      </div>
     </section>
     <section class="panel"><h2>Notices</h2><div id="notices"></div></section>
   </div>
@@ -176,6 +191,14 @@
     if (live && !ev.text) { live.remove(); live = null; }
     setStats(ev.stats);
   }
+  function setLive(ls) {
+    if (!ls) return;
+    document.querySelectorAll("#settings [data-key]").forEach((el) => {
+      const v = ls[el.dataset.key];
+      if (v != null && document.activeElement !== el) el.value = String(v);
+    });
+    if (ls["agent.reply_mode"]) $("mode").value = ls["agent.reply_mode"];
+  }
   function notice(level, text) { const d = document.createElement("div"); d.className = level; d.textContent = text; $("notices").prepend(d); }
   function applySnapshot(s) {
     displayName = s.settings.display_name; trigger = s.settings.trigger_name;
@@ -184,7 +207,7 @@
     $("mode").value = s.settings.reply_mode;
     transcript.innerHTML = ""; live = null;
     s.transcript.forEach(addEntry);
-    setStatus(s.status); setConnection(s.connection); setMeter(s.meter); setStats(s.stats);
+    setStatus(s.status); setConnection(s.connection); setMeter(s.meter); setStats(s.stats); setLive(s.live_settings);
   }
 
   const handlers = {
@@ -193,7 +216,7 @@
     connection: setConnection,
     meter: setMeter,
     stats: (e) => setStats(e),
-    settings: (e) => { if (e.reply_mode) $("mode").value = e.reply_mode; },
+    settings: (e) => setLive(e),
     transcript: (e) => addEntry(e.entry),
     reply_start: (e) => startLive(e.speaker),
     thinking_delta: (e) => { hadThinking = true; thinking.textContent += e.delta; scrollDown(thinking); },
@@ -217,7 +240,11 @@
   function send() { const text = $("say").value.trim(); if (!text) return; $("say").value = ""; post("/api/utterance", { text, source: "typed" }); }
   $("send").onclick = send;
   $("say").addEventListener("keydown", (ev) => { if (ev.key === "Enter") send(); });
-  $("mode").onchange = () => post("/api/settings", { reply_mode: $("mode").value });
+  $("mode").onchange = () => post("/api/settings", { "agent.reply_mode": $("mode").value });
+  $("settings-btn").onclick = () => { $("settings").hidden = !$("settings").hidden; };
+  document.querySelectorAll("#settings [data-key]").forEach((el) => {
+    el.addEventListener("change", () => post("/api/settings", { [el.dataset.key]: el.value }));
+  });
   $("stop").onclick = () => post("/api/command", { command: "stop_speech" });
   $("clear").onclick = () => post("/api/command", { command: "clear" });
   connect();

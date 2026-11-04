@@ -41,6 +41,13 @@ class ReplyRuleTests(unittest.TestCase):
         self.assertEqual(a.handle_utterance("Still no name.").action, "silent")
         with self.assertRaises(ValueError):
             a.set_reply_mode("sometimes")
+        current = a.apply_settings({"model.temperature": 0.2, "agent.trigger_name": "Ada"})
+        self.assertEqual((a.client.config.temperature, a.settings.trigger_name), (0.2, "Ada"))
+        self.assertEqual(current["agent.trigger_name"], "Ada")
+        self.assertEqual(a.handle_utterance("Ada, are you there?").action, "reply")
+        for bad in ({"model.host": "x"}, {"model.max_tokens": "many"}, {"agent.trigger_name": " "}):
+            with self.assertRaises(ValueError):
+                a.apply_settings(bad)
 
     def test_name_detection(self) -> None:
         self.assertTrue(mentions_name("Well, stranger, what now?"))

@@ -45,8 +45,13 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(state["transcript"][-1]["role"], "agent")
 
     def test_settings_and_commands(self) -> None:
-        self.assertEqual(self.client.post("/api/settings", json={"reply_mode": "always"}).json()["reply_mode"], "always")
+        self.assertEqual(self.client.post("/api/settings", json={"reply_mode": "always"}).json()["agent.reply_mode"], "always")
         self.assertEqual(self.client.post("/api/settings", json={"reply_mode": "nope"}).status_code, 400)
+        r = self.client.post("/api/settings", json={"model.temperature": "0.8", "model.max_sentences": 2, "model.think": "false"})
+        self.assertEqual((r.json()["model.temperature"], r.json()["model.max_sentences"], r.json()["model.think"]), (0.8, 2, False))
+        self.assertEqual(self.agent.client.config.temperature, 0.8)
+        self.assertEqual(self.client.post("/api/settings", json={"model.model": "other"}).status_code, 400)
+        self.assertIn("live_settings", self.client.get("/api/state").json())
         self.assertEqual(self.client.post("/api/utterance", json={"text": "  "}).status_code, 400)
         self.assertFalse(self.client.post("/api/command", json={"command": "stop_speech"}).json()["ok"])
         self.assertTrue(self.client.post("/api/command", json={"command": "clear"}).json()["ok"])

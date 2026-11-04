@@ -98,7 +98,7 @@ class Agent:
                     "model": self.client.config.model, "endpoint": self.client.config.host,
                     "transcript": list(self.transcript), "context_messages": len(self.history),
                     "stats": self.last_stats, "meter": self.meter.reading(self.history).as_dict(),
-                    "connection": dict(self.connection)}
+                    "connection": dict(self.connection), "live_settings": self.live_settings()}
 
     # -- background worker: utterances are handled one at a time, in order ------------
 
@@ -207,13 +207,40 @@ class Agent:
 
     # -- commands ----------------------------------------------------------------------
 
+    LIVE_SETTINGS = {"agent.reply_mode": str, "agent.trigger_name": str, "model.temperature": float,
+                     "model.max_sentences": int, "model.max_tokens": int, "model.think": bool}
+
     def set_reply_mode(self, mode: str) -> str:
-        if mode not in ("named", "always"):
-            raise ValueError("reply_mode must be 'named' or 'always'")
+        return self.apply_settings({"agent.reply_mode": mode})["agent.reply_mode"]
+
+    def live_settings(self) -> dict:
+        c, s = self.client.config, self.settings
+        return {"agent.reply_mode": s.reply_mode, "agent.trigger_name": s.trigger_name, "model.temperature": c.temperature,
+                "model.max_sentences": c.max_sentences, "model.max_tokens": c.max_tokens, "model.think": c.think}
+
+    def apply_settings(self, changes: dict) -> dict:
+        """Change settings that take effect on the next turn. Raises ValueError on a bad key or value."""
         with self._lock:
-            self.settings.reply_mode = mode
-            self.events.publish("settings", reply_mode=mode)
-            return mode
+            for key, value in changes.items():
+                kind = self.LIVE_SETTINGS.get(key)
+                if kind is None:
+                    raise ValueError(f"{key!r} cannot be changed while running; live settings: "
+                                     f"{', '.join(self.LIVE_SETTINGS)}")
+                if kind is bool and isinstance(value, str):
+                    value = value.lower() in ("1", "true", "yes", "on")
+                try:
+                    value = kind(value)
+                except (TypeError, ValueError):
+                    raise ValueError(f"{key}: expected {kind.__name__}, got {value!r}") from None
+                if key == "agent.reply_mode" and value not in ("named", "always"):
+                    raise ValueError("agent.reply_mode must be 'named' or 'always'")
+                if key == "agent.trigger_name" and not value.strip():
+                    raise ValueError("agent.trigger_name must not be empty")
+                section, _, name = key.partition(".")
+                setattr(self.settings if section == "agent" else self.client.config, name, value)
+            current = self.live_settings()
+            self.events.publish("settings", **current)
+            return current
 
     def clear(self) -> None:
         """Forget the conversation (the constitution and context stay)."""

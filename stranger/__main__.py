@@ -1,9 +1,13 @@
 """Command line: `python -m stranger <command>`.
 
-    serve      web GUI (default port 8766), microphone in unless --input text
+    serve      web GUI (default port 8766)
     chat       the same agent in the terminal
+    config     the effective settings and where each value came from
     check      is the model endpoint reachable, which models and devices are there
     profiles   list the profiles found
+
+Settings come from stranger.toml, a preset, STRANGER_* environment variables and
+flags, in that order (see docs/configuration.md). Flags given here override the file.
 """
 
 from __future__ import annotations
@@ -14,69 +18,106 @@ import sys
 
 from . import __version__
 from .agent import Agent, AgentSettings
-from .llm import LLMClient, LLMConfig, check_endpoint, installed_models
+from .config import ConfigError, LIVE_KEYS, Settings, format_settings, load_settings
+from .llm import LLMClient, check_endpoint, installed_models
 from .profiles import ProfileError, build_system_prompt, list_profiles, load_profile
+
+# flag -> (section, key); a flag left unset does not override the file
+FLAGS = {
+    "model": ("model", "model"), "host": ("model", "host"), "api": ("model", "api"), "num_ctx": ("model", "num_ctx"),
+    "max_tokens": ("model", "max_tokens"), "max_sentences": ("model", "max_sentences"),
+    "temperature": ("model", "temperature"),
+    "profile": ("agent", "profile"), "name": ("agent", "user_name"), "trigger_name": ("agent", "trigger_name"),
+    "reply": ("agent", "reply_mode"),
+    "input": ("speech", "input"), "mic_device": ("speech", "device"), "whisper_model": ("speech", "model_size"),
+    "chunk_seconds": ("speech", "chunk_seconds"), "max_chunks": ("speech", "max_chunks"),
+    "tts": ("voice", "backend"), "voice": ("voice", "voice"), "output_device": ("voice", "output_device"),
+    "bind": ("web", "bind"), "port": ("web", "port"),
+}
+
+
+def add_common_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--config", default=None, help="settings file (default: ./stranger.toml or ~/.config/stranger/stranger.toml)")
+    p.add_argument("--preset", default=None, help="a [presets.NAME] section of the settings file to overlay")
 
 
 def add_agent_args(p: argparse.ArgumentParser) -> None:
-    g = p.add_argument_group("model")
-    g.add_argument("--model", default=LLMConfig.model, help="model name on the endpoint")
-    g.add_argument("--host", default=LLMConfig.host, help="Ollama or OpenAI-compatible server URL")
-    g.add_argument("--api", choices=["ollama", "openai"], default="ollama", help="wire protocol of the endpoint")
-    g.add_argument("--num-ctx", type=int, default=LLMConfig.num_ctx, help="context window to request / meter against")
-    g.add_argument("--max-tokens", type=int, default=LLMConfig.max_tokens)
-    g.add_argument("--max-sentences", type=int, default=LLMConfig.max_sentences, help="0 for no limit")
-    g.add_argument("--no-thinking", action="store_true", help="don't ask the model for a thinking stream")
-    g.add_argument("--no-warm-up", action="store_true", help="skip pre-evaluating the system prompt at start")
-    a = p.add_argument_group("agent")
-    a.add_argument("--profile", default="stranger", help="profile name under profiles/, or a directory path")
-    a.add_argument("--name", default="Visitor", help="your name, as the model sees it")
-    a.add_argument("--trigger-name", default=None, help="word that makes the agent answer (default: the display name's last word)")
-    a.add_argument("--reply", choices=["named", "always"], default="named", help="answer only when named, or always")
-    s = p.add_argument_group("speech in")
-    s.add_argument("--input", choices=["mic", "text"], default="mic")
-    s.add_argument("--mic-device", default=None, help="input device index or name substring")
-    s.add_argument("--whisper-model", default="small")
-    s.add_argument("--chunk-seconds", type=float, default=2.0)
-    s.add_argument("--max-chunks", type=int, default=6, help="close an utterance after this many speech chunks")
-    v = p.add_argument_group("speech out")
-    v.add_argument("--speak", action="store_true", help="read replies aloud (thinking is never spoken)")
-    v.add_argument("--tts", default="piper", help="piper (offline) | espeak | elevenlabs | openai")
-    v.add_argument("--voice", default=None, help="voice name or path, e.g. en_GB-alan-medium")
-    v.add_argument("--output-device", default=None, help="speaker device index or name substring")
+    add_common_args(p)
+    g = p.add_argument_group("model (override [model])")
+    g.add_argument("--model"); g.add_argument("--host"); g.add_argument("--api", choices=["ollama", "openai"])
+    g.add_argument("--num-ctx", type=int); g.add_argument("--max-tokens", type=int)
+    g.add_argument("--max-sentences", type=int, help="0 for no limit"); g.add_argument("--temperature", type=float)
+    g.add_argument("--no-thinking", action="store_true", help="model.think = false")
+    g.add_argument("--no-warm-up", action="store_true", help="agent.warm_up = false")
+    a = p.add_argument_group("agent (override [agent])")
+    a.add_argument("--profile"); a.add_argument("--name", help="the human's name, as the model sees it")
+    a.add_argument("--trigger-name"); a.add_argument("--reply", choices=["named", "always"])
+    s = p.add_argument_group("speech in (override [speech])")
+    s.add_argument("--input", choices=["mic", "text"]); s.add_argument("--mic-device")
+    s.add_argument("--whisper-model"); s.add_argument("--chunk-seconds", type=float); s.add_argument("--max-chunks", type=int)
+    v = p.add_argument_group("speech out (override [voice])")
+    v.add_argument("--speak", action="store_true", help="voice.enabled = true")
+    v.add_argument("--no-speak", action="store_true", help="voice.enabled = false")
+    v.add_argument("--tts"); v.add_argument("--voice"); v.add_argument("--output-device")
 
 
-def build_agent(args) -> tuple[Agent, LLMClient]:
-    profile = load_profile(args.profile)
-    config = LLMConfig(model=args.model, host=args.host, api=args.api, num_ctx=args.num_ctx, max_tokens=args.max_tokens,
-                       max_sentences=args.max_sentences, think=not args.no_thinking,
-                       stop=(f"{args.name}:", f"{args.name.upper()}:") + tuple(profile.stop_words))
+def flags_from(args) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for flag, (section, key) in FLAGS.items():
+        value = getattr(args, flag, None)
+        if value is not None:
+            out.setdefault(section, {})[key] = value
+    if getattr(args, "no_thinking", False):
+        out.setdefault("model", {})["think"] = False
+    if getattr(args, "no_warm_up", False):
+        out.setdefault("agent", {})["warm_up"] = False
+    if getattr(args, "speak", False):
+        out.setdefault("voice", {})["enabled"] = True
+    if getattr(args, "no_speak", False):
+        out.setdefault("voice", {})["enabled"] = False
+    if getattr(args, "quiet", False):
+        out.setdefault("web", {})["quiet"] = True
+    return out
+
+
+def settings_from(args) -> tuple[Settings, dict]:
+    return load_settings(args.config, args.preset, flags_from(args))
+
+
+def build_agent(settings: Settings) -> tuple[Agent, LLMClient]:
+    profile = load_profile(settings.agent.profile)
+    config = settings.model
+    config.stop = tuple(config.stop) + (f"{settings.agent.user_name}:", f"{settings.agent.user_name.upper()}:") \
+        + tuple(profile.stop_words)
     client = LLMClient(config)
     speak = stop_speech = None
-    if args.speak:
-        from .voice import AudioPlayer, VoiceConfig, make_tts
-        tts = make_tts(VoiceConfig(backend=args.tts, voice=args.voice, output_device=args.output_device))
-        player = AudioPlayer(args.output_device)
+    if settings.voice.enabled:
+        from .voice import AudioPlayer, make_tts
+        tts = make_tts(settings.voice_config())
+        player = AudioPlayer(settings.voice.output_device)
         print(f"Speech: {tts.name} -> {player.device_name}")
 
         def speak(text: str) -> None:
             player.play(tts.synthesize(text), block=True)
         stop_speech = player.stop
-    trigger = args.trigger_name or profile.display_name.split()[-1]
-    settings = AgentSettings(user_name=args.name, display_name=profile.display_name, speaker_tag=profile.speaker_tag,
-                             trigger_name=trigger, reply_mode=args.reply)
-    agent = Agent(client, build_system_prompt(profile, args.name), settings, speak=speak, stop_speech=stop_speech)
-    print(f"Profile {profile}; answers when '{trigger}' is said" if args.reply == "named" else f"Profile {profile}; answers always")
+    trigger = settings.agent.trigger_name or profile.display_name.split()[-1]
+    agent_settings = AgentSettings(user_name=settings.agent.user_name, display_name=profile.display_name,
+                                   speaker_tag=profile.speaker_tag, trigger_name=trigger, reply_mode=settings.agent.reply_mode)
+    agent = Agent(client, build_system_prompt(profile, settings.agent.user_name), agent_settings,
+                  speak=speak, stop_speech=stop_speech)
+    rule = f"answers when '{trigger}' is said" if settings.agent.reply_mode == "named" else "answers always"
+    print(f"Settings from {settings.source_file or 'defaults'}" + (f" (preset {settings.preset})" if settings.preset else "")
+          + f". Profile {profile}; {rule}.")
     return agent, client
 
 
-def warm_up(agent: Agent, client: LLMClient, skip: bool) -> None:
+def warm_up(agent: Agent, client: LLMClient, enabled: bool) -> None:
     online, detail = client.check()
     print(f"Model endpoint {client.config.host} ({client.config.api}): {'online, ' + detail.splitlines()[0] if online else 'OFFLINE'}")
     if not online:
         print(detail)
         return
-    if not skip:
+    if enabled:
         print(f"Warming up {client.config.model} (pre-evaluating the system prompt)...")
         try:
             print(f"  ready in {client.warm_up(agent.system_prompt):.1f}s")
@@ -84,54 +125,60 @@ def warm_up(agent: Agent, client: LLMClient, skip: bool) -> None:
             print(f"  warm-up failed: {e}")
 
 
-def speech_config(args):
-    from .speech import SpeechConfig
-    return SpeechConfig(model_size=args.whisper_model, device=args.mic_device, chunk_seconds=args.chunk_seconds)
-
-
 def cmd_serve(args) -> int:
-    agent, client = build_agent(args)
-    warm_up(agent, client, args.no_warm_up)
+    settings, _ = settings_from(args)
+    agent, client = build_agent(settings)
+    warm_up(agent, client, settings.agent.warm_up)
+    bind, port = settings.web.bind, settings.web.port
     with socket.socket() as probe:
-        if probe.connect_ex((args.bind, args.port)) == 0:
-            print(f"Port {args.port} on {args.bind} is already in use by another program (left running); "
-                  f"try --port {args.port + 1}")
+        if probe.connect_ex((bind, port)) == 0:
+            print(f"Port {port} on {bind} is already in use by another program (left running); try --port {port + 1}")
             return 2
     from .chat import TerminalView
     from .web.server import create_app, mic_feed_factory
-    if not args.quiet:
+    if not settings.web.quiet:
         TerminalView(agent).start()
-    mic_feed = mic_feed_factory(speech_config(args), args.max_chunks) if args.input == "mic" else None
+    mic_feed = mic_feed_factory(settings.speech_config(), settings.speech.max_chunks) if settings.speech.input == "mic" else None
     app = create_app(agent, endpoint_check=client.check, mic_feed=mic_feed)
-    print(f"Open http://{args.bind}:{args.port}")
+    print(f"Open http://{bind}:{port}")
     import uvicorn
-    uvicorn.run(app, host=args.bind, port=args.port, log_level="warning")
+    uvicorn.run(app, host=bind, port=port, log_level="warning")
     return 0
 
 
 def cmd_chat(args) -> int:
     from .chat import TerminalView, run_mic, run_text
-    agent, client = build_agent(args)
-    warm_up(agent, client, args.no_warm_up)
-    view = TerminalView(agent, show_thinking=not args.no_thinking)
+    settings, _ = settings_from(args)
+    agent, client = build_agent(settings)
+    warm_up(agent, client, settings.agent.warm_up)
+    view = TerminalView(agent, show_thinking=bool(settings.model.think))
     try:
-        if args.input == "text":
+        if settings.speech.input == "text":
             run_text(agent, view)
         else:
-            run_mic(agent, view, speech_config(args), args.max_chunks)
+            run_mic(agent, view, settings.speech_config(), settings.speech.max_chunks)
     except KeyboardInterrupt:
         print("\n[bye]")
     return 0
 
 
+def cmd_config(args) -> int:
+    settings, sources = settings_from(args)
+    print(format_settings(settings, sources))
+    print(f"\n(live) = can be changed while running, from the page or POST /api/settings: {', '.join(sorted(LIVE_KEYS))}")
+    return 0
+
+
 def cmd_check(args) -> int:
-    online, detail = check_endpoint(args.host, args.api)
-    print(f"Model endpoint {args.host} ({args.api}): {'online, ' + detail if online else 'OFFLINE'}")
+    settings, _ = settings_from(args)
+    host, api = settings.model.host, settings.model.api
+    online, detail = check_endpoint(host, api)
+    print(f"Model endpoint {host} ({api}): {'online, ' + detail if online else 'OFFLINE'}")
     if not online:
         print(detail)
     else:
         try:
-            print("  models: " + ", ".join(installed_models(args.host, args.api)))
+            print("  models: " + ", ".join(installed_models(host, api)))
         except Exception as e:
             print(f"  could not list models: {e}")
     print("Profiles: " + ", ".join(list_profiles()))
@@ -160,14 +207,16 @@ def main(argv=None) -> int:
     sub = p.add_subparsers(dest="command")
     serve = sub.add_parser("serve", help="web GUI")
     add_agent_args(serve)
-    serve.add_argument("--bind", default="127.0.0.1")
-    serve.add_argument("--port", type=int, default=8766)
-    serve.add_argument("--quiet", action="store_true", help="don't echo the conversation to this terminal")
+    serve.add_argument("--bind"); serve.add_argument("--port", type=int)
+    serve.add_argument("--quiet", action="store_true", help="web.quiet = true: no terminal echo")
     chat = sub.add_parser("chat", help="terminal chat")
     add_agent_args(chat)
+    config = sub.add_parser("config", help="show the effective settings and their sources")
+    add_agent_args(config)
+    config.add_argument("--bind"); config.add_argument("--port", type=int); config.add_argument("--quiet", action="store_true")
     check = sub.add_parser("check", help="endpoint, models, devices, voices")
-    check.add_argument("--host", default=LLMConfig.host)
-    check.add_argument("--api", choices=["ollama", "openai"], default="ollama")
+    add_common_args(check)
+    check.add_argument("--host"); check.add_argument("--api", choices=["ollama", "openai"])
     sub.add_parser("profiles", help="list profiles")
     args = p.parse_args(argv)
     if args.command is None:
@@ -178,13 +227,15 @@ def main(argv=None) -> int:
             return cmd_serve(args)
         if args.command == "chat":
             return cmd_chat(args)
+        if args.command == "config":
+            return cmd_config(args)
         if args.command == "check":
             return cmd_check(args)
         for name in list_profiles():
             print(f"  {load_profile(name)}")
         return 0
-    except (ProfileError, RuntimeError) as e:
-        print(e)
+    except (ConfigError, ProfileError, RuntimeError) as e:
+        print(f"error: {e}")
         return 1
 
 

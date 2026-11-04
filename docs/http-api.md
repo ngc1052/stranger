@@ -8,7 +8,7 @@ The server binds to `127.0.0.1:8766` by default (`--bind`, `--port`).
 | GET | `/events` | | Server-Sent Events: a `snapshot` event, then every agent event |
 | GET | `/api/state` | | the snapshot as JSON |
 | POST | `/api/utterance` | `{"text": "...", "source": "typed"}` | `{"queued": true}`; 400 when text is empty |
-| POST | `/api/settings` | `{"reply_mode": "named" \| "always"}` | `{"reply_mode": ...}` |
+| POST | `/api/settings` | `{"agent.reply_mode": "always", "model.temperature": 0.8}` (any live key, see configuration.md) | all live settings after the change; 400 on a bad key or value |
 | POST | `/api/command` | `{"command": "stop_speech" \| "clear"}` | `{"ok": bool}` |
 
 ## The snapshot
@@ -24,7 +24,9 @@ The server binds to `127.0.0.1:8766` by default (`--bind`, `--port`).
   "stats": {"input_tokens": 1380, "output_tokens": 412, "output_tokens_estimated": null, "counts_source": "server",
             "total_seconds": 9.6, "first_token_seconds": 1.7, "truncated": false, "model": "qwen3:1.7b"},
   "meter": {"used": 1792, "window": 8192, "fraction": 0.2188, "percent": 21.9, "source": "measured"},
-  "connection": {"online": true, "detail": "Ollama 0.30.11", "checked_at": 1793803519.5}
+  "connection": {"online": true, "detail": "Ollama 0.30.11", "checked_at": 1793803519.5},
+  "live_settings": {"agent.reply_mode": "named", "agent.trigger_name": "Stranger", "model.temperature": 0.6,
+                    "model.max_sentences": 3, "model.max_tokens": 600, "model.think": true}
 }
 ```
 
